@@ -1,0 +1,2 @@
+use bicicleta
+EXEC dbo.spRaport_DisponibilitatePeStatii_Cursor
