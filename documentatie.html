@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Documentație BD – Platformă închiriere biciclete (SQL Server)</title>
+  <style>
+    :root { --bg:#0b1020; --card:#121a33; --txt:#e8ecff; --muted:#b9c2ff; --accent:#7aa2ff; --ok:#50fa7b; --warn:#ffb86c; --bad:#ff5555; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: linear-gradient(180deg, var(--bg), #070a14); color: var(--txt); }
+    header { padding: 28px 18px; max-width: 1100px; margin: 0 auto; }
+    h1 { margin:0 0 8px 0; font-size: 28px; }
+    .sub { color: var(--muted); margin:0; }
+    main { max-width: 1100px; margin: 0 auto; padding: 0 18px 40px 18px; }
+    section { background: rgba(255,255,255,0.04); border:1px solid rgba(122,162,255,0.18); border-radius: 14px; padding: 16px 16px; margin: 14px 0; }
+    h2 { margin: 0 0 10px 0; font-size: 20px; }
+    h3 { margin: 14px 0 8px 0; font-size: 16px; color: var(--accent); }
+    ul { margin: 8px 0 8px 20px; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    pre { background: rgba(0,0,0,0.35); border:1px solid rgba(122,162,255,0.18); padding: 12px; border-radius: 12px; overflow:auto; }
+    .grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+    @media (max-width: 900px){ .grid{ grid-template-columns: 1fr; } }
+    table { width:100%; border-collapse: collapse; overflow:hidden; border-radius: 10px; }
+    th, td { border-bottom:1px solid rgba(122,162,255,0.18); padding: 10px; text-align:left; vertical-align: top; }
+    th { color: var(--accent); font-weight:600; background: rgba(122,162,255,0.08); }
+    .tag { display:inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border:1px solid rgba(122,162,255,0.25); color: var(--muted); margin-right:6px; }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+    .note { color: var(--muted); }
+    a { color: var(--accent); }
+  </style>
+</head>
+
+<body>
+<header>
+  <h1>Platformă de închiriere biciclete – Documentație BD (SQL Server / SSMS)</h1>
+  <p class="sub">
+    Proiect: Bază de date relațională (8 tabele + relație m-n), proceduri, triggere, job, drepturi, backup/restore.
+  </p>
+</header>
+
+<main>
+
+  <section>
+    <h2>1. Specificații proiect</h2>
+    <ul>
+      <li><span class="tag">SGBD</span> Microsoft SQL Server (SSMS)</li>
+      <li><span class="tag">Nr. tabele</span> 8 tabele principale + 1 tabel de legătură pentru relația m-n</li>
+      <li><span class="tag">Relații</span> 1-n și m-n</li>
+      <li><span class="tag">Integritate</span> PK, FK, CHECK, UNIQUE</li>
+      <li><span class="tag">Indexuri</span> Clustered (PK implicit) + Nonclustered pe coloane uzuale</li>
+      <li><span class="tag">Views</span> rapoarte (disponibilitate, venituri, top clienți)</li>
+      <li><span class="tag">Stored Procedures</span> CRUD + Start/End împrumut</li>
+      <li><span class="tag">Triggere</span> DML (consistență business) + DDL (audit)</li>
+      <li><span class="tag">Cursor</span> raport disponibilitate pe stații</li>
+      <li><span class="tag">Securitate</span> roluri de DB + permisiuni</li>
+      <li><span class="tag">Job</span> reconciliere status biciclete (SQL Server Agent)</li>
+      <li><span class="tag">Backup</span> strategie + scripturi exemplu</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>2. Domeniu & descriere</h2>
+    <p>
+      Sistemul gestionează biciclete disponibile în stații, închirieri (împrumuturi) efectuate de clienți și plăți
+      asociate. Include și funcționalitatea de <b>stații favorite</b> (relație m-n între clienți și stații).
+    </p>
+  </section>
+
+  <section>
+    <h2>3. Cazuri de utilizare</h2>
+
+    <div class="grid">
+      <div>
+        <h3>3.1 Actori</h3>
+        <ul>
+          <li><b>Client</b> – închiriază bicicletă, închide împrumut, setează stații favorite</li>
+          <li><b>Operator</b> – administrează biciclete/stații, inițiază/închide împrumuturi</li>
+          <li><b>Casier</b> – înregistrează plăți și consultă rapoarte de venituri</li>
+          <li><b>Admin aplicație</b> – administrare completă obiecte BD (în cadrul DB)</li>
+        </ul>
+      </div>
+
+      <div>
+        <h3>3.2 Listă cazuri de utilizare</h3>
+        <ul>
+          <li>UC1: Administrare tipuri biciclete (CRUD)</li>
+          <li>UC2: Administrare stații (CRUD)</li>
+          <li>UC3: Administrare biciclete (CRUD + status)</li>
+          <li>UC4: Înregistrare client (CRUD)</li>
+          <li>UC5: Start împrumut (validare bicicletă disponibilă)</li>
+          <li>UC6: End împrumut (închidere + returnare stație)</li>
+          <li>UC7: Înregistrare plată</li>
+          <li>UC8: Setare stații favorite (m-n)</li>
+          <li>UC9: Rapoarte (views)</li>
+          <li>UC10: Audit modificări schemă (DDL trigger)</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>3.3 Diagramă (Mermaid)</h3>
+    <pre class="mermaid">
+flowchart LR
+  C((Client))
+  O((Operator))
+  K((Casier))
+  A((Admin aplicatie))
+
+  UC1["UC1: Admin tipuri biciclete"]
+  UC2["UC2: Admin statii"]
+  UC3["UC3: Admin biciclete"]
+  UC4["UC4: CRUD clienti"]
+  UC5["UC5: Start imprumut"]
+  UC6["UC6: End imprumut"]
+  UC7["UC7: Inregistrare plata"]
+  UC8["UC8: Statii favorite (m-n)"]
+  UC9["UC9: Rapoarte (views)"]
+  UC10["UC10: Audit schema (DDL)"]
+
+  O --> UC1
+  O --> UC2
+  O --> UC3
+  O --> UC5
+  O --> UC6
+
+  C --> UC4
+  C --> UC5
+  C --> UC6
+  C --> UC8
+  C --> UC9
+
+  K --> UC7
+  K --> UC9
+
+  A --> UC10
+  A --> UC1
+  A --> UC2
+  A --> UC3
+  A --> UC4
+  A --> UC7
+
+    </pre>
+  </section>
+
+  <section>
+    <h2>4. Structura bazei de date</h2>
+
+    <h3>4.1 Tabele</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Tabel</th>
+          <th>Rol / descriere</th>
+          <th>Chei & relații (rezumat)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>TipuriBiciclete</b></td>
+          <td>Catalog tipuri (oraș, mountain, electric etc.)</td>
+          <td>PK: TipID; UNIQUE: NumeTip; 1-n cu Biciclete</td>
+        </tr>
+        <tr>
+          <td><b>Statii</b></td>
+          <td>Stații de preluare/returnare</td>
+          <td>PK: StatieID; 1-n cu Biciclete; m-n cu Clienti prin ClientiStatiiFavorite</td>
+        </tr>
+        <tr>
+          <td><b>Biciclete</b></td>
+          <td>Inventar biciclete + status</td>
+          <td>PK: BicicletaID; FK: TipID, StatieID; CHECK Status</td>
+        </tr>
+        <tr>
+          <td><b>Clienti</b></td>
+          <td>Clienți care pot închiria biciclete</td>
+          <td>PK: ClientID; UNIQUE: Email; 1-n cu Imprumuturi</td>
+        </tr>
+        <tr>
+          <td><b>Imprumuturi</b></td>
+          <td>Istoric închirieri (active/închise)</td>
+          <td>PK: ImprumutID; FK: ClientID, BicicletaID; CHECK dată</td>
+        </tr>
+        <tr>
+          <td><b>Plati</b></td>
+          <td>Plăți asociate împrumuturilor</td>
+          <td>PK: PlataID; FK: ImprumutID; CHECK Suma>0; DEFAULT DataPlata</td>
+        </tr>
+        <tr>
+          <td><b>Roluri</b></td>
+          <td>Roluri de aplicație (stocate în BD)</td>
+          <td>PK: RolID; UNIQUE: NumeRol; 1-n cu Utilizatori</td>
+        </tr>
+        <tr>
+          <td><b>Utilizatori</b></td>
+          <td>Conturi aplicație (hash parola + rol)</td>
+          <td>PK: UtilizatorID; UNIQUE: Username; FK: RolID</td>
+        </tr>
+        <tr>
+          <td><b>ClientiStatiiFavorite</b> <span class="tag">m-n</span></td>
+          <td>Tabel de legătură: clienți ↔ stații favorite</td>
+          <td>PK compus: (ClientID, StatieID); FK către Clienti și Statii</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>4.2 Relații</h3>
+    <ul>
+      <li><b>1-n</b>: TipuriBiciclete → Biciclete</li>
+      <li><b>1-n</b>: Statii → Biciclete</li>
+      <li><b>1-n</b>: Clienti → Imprumuturi</li>
+      <li><b>1-n</b>: Biciclete → Imprumuturi</li>
+      <li><b>1-n</b>: Imprumuturi → Plati</li>
+      <li><b>1-n</b>: Roluri → Utilizatori</li>
+      <li><b>m-n</b>: Clienti ↔ Statii prin ClientiStatiiFavorite</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>5. Constrângeri & indexuri</h2>
+
+    <h3>5.1 Constrângeri</h3>
+    <ul>
+      <li><b>PK</b> pe fiecare tabel (clustered implicit în SQL Server)</li>
+      <li><b>FK</b> între tabelele relaționate pentru integritate referențială</li>
+      <li><b>UNIQUE</b>:
+        <ul>
+          <li>Clienti.Email</li>
+          <li>Utilizatori.Username</li>
+          <li>Roluri.NumeRol</li>
+          <li>TipuriBiciclete.NumeTip</li>
+        </ul>
+      </li>
+      <li><b>CHECK</b>:
+        <ul>
+          <li>Biciclete.Status ∈ {'disponibila','inchiriata','mentenanta'}</li>
+          <li>Plati.Suma &gt; 0</li>
+          <li>Imprumuturi: DataSfarsit este NULL sau ≥ DataInceput</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h3>5.2 Indexuri</h3>
+    <ul>
+      <li><b>Clustered</b>: cheile primare (implicit)</li>
+      <li><b>Nonclustered</b>:
+        <ul>
+          <li>IX_Biciclete_StatieID (căutare biciclete pe stație)</li>
+          <li>IX_Biciclete_Status (căutare biciclete pe status)</li>
+          <li>IX_Imprumuturi_ClientID (istoric împrumuturi per client)</li>
+          <li>IX_Plati_ImprumutID (plăți per împrumut)</li>
+        </ul>
+      </li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>6. Vederi (Views) – descriere</h2>
+    <ul>
+      <li><b>vBicicleteDisponibilePeStatie</b> – număr biciclete disponibile pe stație și tip</li>
+      <li><b>vImprumuturiActive</b> – împrumuturi neînchise (DataSfarsit IS NULL)</li>
+      <li><b>vVenituriLunare</b> – total venituri pe lună (din Plati)</li>
+      <li><b>vTopClienti</b> – top 10 clienți după numărul de împrumuturi</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>7. Proceduri stocate (CRUD) – descriere</h2>
+    <ul>
+      <li><b>spClienti_Create/ReadById/Update/Delete</b> – CRUD pentru clienți</li>
+      <li><b>spBiciclete_Create / spBiciclete_UpdateStatus / spBiciclete_MoveToStatie</b> – operații biciclete</li>
+      <li><b>spImprumut_Start</b> – pornește împrumut (validează bicicleta disponibilă, setează status)</li>
+      <li><b>spImprumut_End</b> – închide împrumut (setează DataSfarsit, status bicicleta + stație returnare)</li>
+      <li><b>spPlati_Create</b> – înregistrează o plată pentru un împrumut</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>8. Triggere</h2>
+
+    <h3>8.1 Triggere DML</h3>
+    <ul>
+      <li><b>tr_Imprumuturi_PreventDoubleActive</b> – nu permite mai mult de un împrumut activ pe aceeași bicicletă</li>
+      <li><b>tr_Imprumuturi_CloseSetsBikeAvailable</b> – dacă DataSfarsit se completează manual, bicicleta devine disponibilă</li>
+    </ul>
+
+    <h3>8.2 Trigger DDL</h3>
+    <ul>
+      <li><b>tr_DDL_Audit_Bicicleta</b> – loghează evenimente CREATE/ALTER/DROP pentru TABLE/VIEW/PROCEDURE în Error Log</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>9. Cursor</h2>
+    <p>
+      Procedura <b>spRaport_DisponibilitatePeStatii_Cursor</b> folosește un cursor pentru a parcurge stațiile și a afișa
+      prin <code>PRINT</code> câte biciclete disponibile există în fiecare stație.
+    </p>
+  </section>
+
+  <section>
+    <h2>10. Utilizatori, roluri și drepturi</h2>
+    <p>
+      Se folosesc <b>roluri de bază de date</b> (SQL Server DB roles) pentru a limita accesul pe obiecte.
+      Acestea sunt separate de tabelul aplicației <code>Roluri</code>.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Rol DB</th>
+          <th>Drepturi (rezumat)</th>
+          <th>Utilizare</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>db_admin_app</b></td>
+          <td>SELECT/INSERT/UPDATE/DELETE pe schema dbo + EXECUTE pe proceduri</td>
+          <td>Administrare completă în cadrul DB</td>
+        </tr>
+        <tr>
+          <td><b>db_operator</b></td>
+          <td>SELECT/INSERT/UPDATE pe Biciclete, Statii, Imprumuturi + EXECUTE Start/End</td>
+          <td>Operator stație / mentenanță / operațional</td>
+        </tr>
+        <tr>
+          <td><b>db_cashier</b></td>
+          <td>INSERT/SELECT pe Plati + SELECT pe view venituri + EXECUTE spPlati_Create</td>
+          <td>Casierie / financiar</td>
+        </tr>
+        <tr>
+          <td><b>db_readonly</b></td>
+          <td>SELECT pe schema dbo</td>
+          <td>Raportare / consultare</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>11. Job-uri Transact-SQL</h2>
+    <p>
+      Job-ul <b>JOB_Biciclete_ReconcilereStatus</b> rulează zilnic și corectează inconsistențe:
+      biciclete marcate <code>'inchiriata'</code> fără un împrumut activ sunt setate automat <code>'disponibila'</code>.
+    </p>
+    <p class="note">
+      Necesită SQL Server Agent pornit și permisiuni în baza <code>msdb</code>.
+    </p>
+  </section>
+
+  <section>
+    <h2>12. Strategii backup / restore</h2>
+    <h3>12.1 Strategie recomandată (simplă)</h3>
+    <ul>
+      <li><b>Full backup</b> zilnic (ex. 02:00)</li>
+      <li><b>Differential backup</b> la 4–6 ore (opțional)</li>
+      <li><b>Transaction log backup</b> (doar dacă DB este în FULL recovery)</li>
+    </ul>
+
+    <h3>12.2 Scripturi exemplu</h3>
+    <pre>
+-- FULL BACKUP
+BACKUP DATABASE bicicleta
+TO DISK = 'C:\Backup\bicicleta_full.bak'
+WITH INIT, COMPRESSION, STATS = 10;
+
+-- DIFFERENTIAL (opțional)
+BACKUP DATABASE bicicleta
+TO DISK = 'C:\Backup\bicicleta_diff.bak'
+WITH DIFFERENTIAL, INIT, COMPRESSION, STATS = 10;
+
+-- RESTORE (exemplu)
+-- RESTORE DATABASE bicicleta
+-- FROM DISK = 'C:\Backup\bicicleta_full.bak'
+-- WITH REPLACE, RECOVERY, STATS = 10;
+    </pre>
+    <p class="note">
+      În practică, locațiile de backup depind de server și permisiuni; pentru proiect este suficient să explici strategia și să arăți scriptul.
+    </p>
+  </section>
+
+  <section>
+    <h2>13. Anexe</h2>
+    <h3>13.1 Observații</h3>
+    <ul>
+      <li>Statusurile bicicletelor sunt validate prin CHECK.</li>
+      <li>Împrumuturile active au DataSfarsit NULL.</li>
+      <li>Consistența “o bicicletă nu poate avea două împrumuturi active” este impusă prin trigger DML.</li>
+      <li>Rapoartele sunt implementate prin views pentru a simplifica interogările.</li>
+    </ul>
+  </section>
+
+</main>
+
+<!-- Mermaid renderer (optional) -->
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: "dark" });
+</script>
+
+</body>
+</html>
